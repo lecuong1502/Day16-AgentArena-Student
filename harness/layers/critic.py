@@ -61,7 +61,9 @@ Xem `harness/middleware.py` để biết thứ tự các hook.
 from __future__ import annotations
 
 from harness.middleware import Middleware
+import re
 
+_CONNECTOR_RE = re.compile(r"\s+(?:và\s+)+")
 
 class Critic(Middleware):
     """Xoá những gì bằng chứng không đỡ; abstain khi không còn gì."""
@@ -69,16 +71,58 @@ class Critic(Middleware):
     name = "critic"
 
     def after_agent(self, ctx, report):
-        # TODO (§2): khoảng 10-25 dòng.
-        #  1. Lấy report["claims"]; nếu rỗng hoặc không phải list thì thôi.
-        #  2. Với mỗi claim: nếu claim["text"] có trong ctx.observed_text
-        #     -> giữ nguyên (KHÔNG sửa chữ).
-        #  3. Nếu không: thử tách câu ghép (trường hợp (c) ở docstring).
-        #     Tách được -> giữ cả hai nửa, mỗi nửa gắn doc_id của tài liệu
-        #     thật sự chứa nó, và đặt report["abstain"] = True.
-        #  4. Không tách được -> đây là bịa: bỏ claim đi.
-        #  5. Nếu không còn claim nào: report["abstain"] = True,
-        #     claims = [], citations = [], và viết lại "answer" nói rõ là
-        #     không đủ căn cứ.
-        #  6. Cập nhật report["citations"] cho khớp với claims còn lại.
-        return report  # <- mặc định KHÔNG LÀM GÌ: agent vẫn chạy được
+        claims = report.get("claims")
+        if not isinstance(claims, list):
+            return report
+
+        kept = []
+        for claim in claims:
+            if not isinstance(claim, dict):
+                continue
+            text = claim.get("text")
+            if isinstance(text, str) and text and ctx.saw(text):
+                kept.append(claim)
+                continue
+            
+            split = self._try_split(ctx, text) if isinstance(text, str) else None
+            if split:
+                kept.extend(split)
+                report["abstain"] = True
+            # không tách được -> bịa, bỏ claim
+          
+        if not kept:
+            report["abstain"] = True
+            report["claims"] = []
+            report["citations"] = []
+            report["answer"] = "Không đủ căn cứ để trả lời."
+        else:
+            report["claims"] = kept
+            report["citations"] = sorted(
+                {c.get("doc_id") for c in kept if isinstance(c.get("doc_id"), str) and c.get("doc_id")}
+            )
+        return report
+    
+    def _try_split(self, ctx, text):
+        if ctx.corpus is None:
+            return None
+        for match in _CONNECTOR_RE.finditer(text):
+            left = text[:match.start()].strip()
+            right = text[match.end():].strip()
+            if not left or not right:
+                continue
+            if not (ctx.saw(left) and ctx.saw(right)):
+                continue
+            doc_left = self._find_doc(ctx, left)
+            doc_right = self._find_doc(ctx, right)
+            if doc_left and doc_right and doc_left != doc_right:
+                return [
+                    {"text": left, "doc_id": doc_left},
+                    {"text": right, "doc_id": doc_right},
+                ]
+        return None
+    
+    def _find_doc(self, ctx, text):
+        for doc in ctx.corpus.docs:
+            if doc.body in ctx.observed_text and text in doc.body:
+                return doc.doc_id
+        return None

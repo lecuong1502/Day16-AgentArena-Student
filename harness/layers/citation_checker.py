@@ -57,14 +57,33 @@ class CitationChecker(Middleware):
     name = "citation_checker"
 
     def after_agent(self, ctx, report):
-        # TODO (§11): khoảng 10-25 dòng.
-        #  1. Lấy report["claims"]; bỏ qua nếu rỗng hoặc ctx.corpus là None.
-        #  2. Với mỗi claim, gọi ctx.corpus.get(claim["doc_id"]).
-        #     Nếu tài liệu tồn tại VÀ claim["text"] nằm trong body của nó
-        #     -> trích dẫn đã đúng, giữ nguyên claim.
-        #  3. Nếu không: tìm trong ctx.corpus.docs tài liệu đầu tiên thoả
-        #     doc.body in ctx.observed_text  và  claim["text"] in doc.body
-        #     -> đó là nguồn thật. Đổi doc_id sang nó, GIỮ NGUYÊN text.
-        #  4. Không tìm được nguồn nào -> để `critic` xử lý, đừng bịa doc_id.
-        #  5. Cập nhật report["citations"] = danh sách doc_id đã sắp xếp.
-        return report  # <- mặc định KHÔNG LÀM GÌ: agent vẫn chạy được
+        claims = report.get("claims")
+        if not isinstance(claims, list) or not claims or ctx.corpus is None:
+            return report
+        
+        for claim in claims:
+            if not isinstance(claim, dict):
+                continue
+            text = claim.get("text")
+            if not isinstance(text, str) or not text:
+                continue
+
+            doc_id = claim.get("doc_id")
+            doc = ctx.corpus.get(doc_id) if isinstance(doc_id, str) else None
+            if doc is not None and text in doc.body:
+                continue   # trích dẫn đã đúng
+
+            for candidate in ctx.corpus.docs:
+                if candidate.body in ctx.observed_text and text in candidate.body:
+                    claim["doc_id"] = candidate.doc_id
+                    break
+            # không tìm được nguồn nào -> để nguyên, critic sẽ xử lý
+
+        report["citations"] = sorted(
+            {
+                c.get("doc_id")
+                for c in claims
+                if isinstance(c, dict) and isinstance(c.get("doc_id"), str) and c.get("doc_id")
+            }
+        )
+        return report
