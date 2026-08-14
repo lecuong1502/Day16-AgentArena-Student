@@ -204,7 +204,7 @@ TRAPS = {
     "outdated": "LỖI THỜI — một bản đã bị thay thế vẫn nằm trong kho",
     "lookalike": "TRÔNG GIỐNG — tài liệu thật, nhưng không nói điều bạn trích",
     "injection": "TIÊM LỆNH — tài liệu chứa mệnh lệnh giả dạng dữ liệu",
-    "absent": "VẮNG DỮ LIỆU — câu trả lời đúng là 'chưa có số liệu'",
+    "absent": "THIẾU SỐ LIỆU TRONG TÀI LIỆU — không có bằng chứng nào ghi nhận con số này",
     "flaky": "TOOL CHẬP CHỜN — có lượt gọi trả về rác / timeout",
 }
 
